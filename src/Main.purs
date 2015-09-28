@@ -12,15 +12,14 @@ import Control.Monad.Aff
 import Control.Monad.Aff.Console
 import Data.Either
 import Data.List
-import qualified Data.StrMap as M
 import Data.Argonaut.Core hiding (toString)
 import Data.Argonaut.Parser
 import Data.Argonaut.Printer
 import Data.Argonaut.Decode
-import Data.Argonaut.Combinators
 import Prelude
 import Data.Maybe
 import qualified Node.Datagram as U
+import Chat.JsonModel
 
 socketType = U.UDP4
 encoding = Encoding.UTF8
@@ -35,36 +34,6 @@ newtype Member = Member {
 newtype ServerState = ServerState {
     members :: List Member    
 }
-
-newtype ClientMsg = ClientMsg {
-    "type" :: String,
-    "command" :: Command
-}
-                
-data Command = Connect ConnectObject | Chat ChatObject
-
-newtype ConnectObject = ConnectObject {
-    nick :: String
-}
-
-newtype ChatObject = ChatObject {
-    chatMsg :: String
-}
-
-instance decodeConnectMsg :: DecodeJson ConnectObject where
-    decodeJson json = do
-        obj <- decodeJson json
-        n <- obj .? "nick"
-        pure $ ConnectObject { nick: n }
-
-instance decodeChatMsg :: DecodeJson ChatObject where
-    decodeJson json = do
-        obj <- decodeJson json
-        n <- obj .? "chatMsg"
-        pure $ ChatObject { chatMsg: n }
-
-instance decodeClientMsg :: DecodeJson Command where
-    decodeJson json = (Connect <$> decodeJson json) <|> (Chat <$> decodeJson json) <|> (Left "NONONO")
 
 main = launchAff $ do
     socket <- U.createSocket socketType
