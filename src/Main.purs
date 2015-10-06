@@ -4,6 +4,7 @@ import Control.Alt
 import Control.Monad.Eff
 import Control.Monad.Eff.Class
 import Control.Monad.ST
+import Control.Monad.Reader.Trans
 import qualified Control.Monad.Eff.Console as EC
 import Control.Monad.Eff.Exception
 import qualified Node.Encoding as Encoding
@@ -26,6 +27,9 @@ encoding = Encoding.UTF8
 listenPort = Just 62111
 listenInterfaces = Nothing -- all interfaces
 
+type SocketMessageHandler eff a = (Buffer -> U.RemoteAddressInfo -> Eff eff a)
+type AppMsgHandler eff = ReaderT U.Socket (Eff eff)
+
 newtype Member = Member {
     nick :: String,
     addr :: U.RemoteAddressInfo
@@ -43,17 +47,28 @@ main = launchAff $ do
     liftEff $ runServer socket
     log "aww yiss"
 
-runServer :: forall e h. U.Socket -> Eff (socket :: U.SOCKET, console :: EC.CONSOLE | e) Unit
+runServer :: forall e. U.Socket -> Eff (socket :: U.SOCKET, console :: EC.CONSOLE | e) Unit
 runServer socket = runST do
-    serverState <- newSTRef { members: Nil }
+    serverState <- newSTRef $ ServerState { members: Nil }
     let msgListener = \buf rinfo -> do
             let msg = toString encoding buf
             let parsedJson = parseIncomingMsg msg
             case parsedJson of
                  (Left errMsg) -> EC.log $ "Error parsing JSON: " ++ errMsg
-                 (Right (Chat (ChatObject o))) -> EC.log o.chatMsg
-                 (Right (Connect (ConnectObject { nick: nick }))) -> EC.log nick
+                 (Right msg) -> do
+			currentState <- readSTRef serverState
+			newState <- runReaderT (handleIncomingMsg currentState msg) socket
+			writeSTRef serverState newState
+			pure unit
     runAff logError logListenStart $ U.onMessage msgListener socket
+
+handleIncomingMsg :: forall e h. ServerState -> Command -> AppMsgHandler (console :: EC.CONSOLE | e) ServerState
+handleIncomingMsg state (Connect (ConnectObject { nick: newUser })) = do
+    lift $ EC.log newUser
+    pure state
+handleIncomingMsg state (Chat (ChatObject { chatMsg: msg })) = do
+    lift $ EC.log msg 
+    pure state
 
 parseIncomingMsg :: String -> Either String Command
 parseIncomingMsg msg = jsonParser msg >>= (decodeJson :: Json -> Either String Command)
