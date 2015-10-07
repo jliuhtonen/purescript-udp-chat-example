@@ -27,15 +27,19 @@ encoding = Encoding.UTF8
 listenPort = Just 62111
 listenInterfaces = Nothing -- all interfaces
 
-type SocketMessageHandler eff a = (Buffer -> U.RemoteAddressInfo -> Eff eff a)
-type AppMsgHandler eff = ReaderT U.Socket (Eff eff)
+type MsgHandlerContext = {
+    socket :: U.Socket
+}
 
-newtype Member = Member {
+type SocketMessageHandler eff a = (Buffer -> U.RemoteAddressInfo -> Eff eff a)
+type AppMsgHandler eff = ReaderT MsgHandlerContext (Eff eff)
+
+type Member = {
     nick :: String,
     addr :: U.RemoteAddressInfo
 }
 
-newtype ServerState = ServerState {
+type ServerState = {
     members :: List Member    
 }
 
@@ -49,7 +53,7 @@ main = launchAff $ do
 
 runServer :: forall e. U.Socket -> Eff (socket :: U.SOCKET, console :: EC.CONSOLE | e) Unit
 runServer socket = runST do
-    serverState <- newSTRef $ ServerState { members: Nil }
+    serverState <- newSTRef { members: Nil }
     let msgListener = \buf rinfo -> do
             let msg = toString encoding buf
             let parsedJson = parseIncomingMsg msg
@@ -57,17 +61,23 @@ runServer socket = runST do
                  (Left errMsg) -> EC.log $ "Error parsing JSON: " ++ errMsg
                  (Right msg) -> do
 			currentState <- readSTRef serverState
-			newState <- runReaderT (handleIncomingMsg currentState msg) socket
+			let handlerContext = { socket: socket }
+			let handler = handleIncomingMsg currentState rinfo msg
+			newState <- runReaderT handler handlerContext
 			writeSTRef serverState newState
 			pure unit
     runAff logError logListenStart $ U.onMessage msgListener socket
 
-handleIncomingMsg :: forall e h. ServerState -> Command -> AppMsgHandler (console :: EC.CONSOLE | e) ServerState
-handleIncomingMsg state (Connect (ConnectObject { nick: newUser })) = do
-    lift $ EC.log newUser
-    pure state
-handleIncomingMsg state (Chat (ChatObject { chatMsg: msg })) = do
-    lift $ EC.log msg 
+handleIncomingMsg :: forall e h. ServerState -> U.RemoteAddressInfo -> Command -> AppMsgHandler (console :: EC.CONSOLE | e) ServerState
+
+handleIncomingMsg state sender (Connect (ConnectObject { nick: nick })) = do
+    lift <<< EC.log $ nick ++ " joined from " ++ show sender
+    let newMember = { nick: nick, addr: sender }
+    let updatedState = state { members = newMember : state.members }
+    pure updatedState
+
+handleIncomingMsg state sender (Chat (ChatObject { chatMsg: msg })) = do
+    lift $ EC.log $ msg 
     pure state
 
 parseIncomingMsg :: String -> Either String Command

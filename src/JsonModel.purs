@@ -16,6 +16,11 @@ newtype ChatObject = ChatObject {
     chatMsg :: String
 }
 
+newtype ClientChatMsg = ClientChatMsg {
+    nick :: String,
+    msg :: String    
+}
+
 instance decodeConnectMsg :: DecodeJson ConnectObject where
     decodeJson json = do
         obj <- decodeJson json
