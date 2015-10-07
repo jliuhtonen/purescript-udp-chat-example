@@ -85,9 +85,8 @@ handleIncomingMsg state sender (Chat (ChatObject { chatMsg: msg })) = do
 sendMessage :: forall a eff. (EncodeJson a) => a -> String -> Int -> AppMsgHandler (socket :: UDP.SOCKET, console :: CONSOLE | eff) Unit
 sendMessage msg address port = do
     MsgHandlerContext { socket: socket } <- ask
-    let json = encodeJson msg
-    let jsonStr = printJson json
-    lift <<< log $ jsonStr
+    let jsonStr = printJson $ encodeJson msg
+    lift $ log jsonStr
     let socketSendAction = sendStringToSocket socket address port jsonStr
     lift <<< catchException logError $ launchAff socketSendAction
 
