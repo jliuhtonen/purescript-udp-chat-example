@@ -15,9 +15,10 @@ import Data.Argonaut.Core hiding (toString)
 import Data.Argonaut.Parser
 import Data.Argonaut.Printer
 import Data.Argonaut.Decode
+import Data.Argonaut.Encode
 import qualified Node.Datagram as UDP
 import qualified Node.Encoding as Encoding
-import Node.Buffer (Buffer(), toString)
+import qualified Node.Buffer as Buffer
 
 import Chat.JsonModel
 
@@ -28,11 +29,11 @@ encoding = Encoding.UTF8
 listenPort = Just 62111
 listenInterfaces = Nothing -- all interfaces
 
-type MsgHandlerContext = {
+newtype MsgHandlerContext = MsgHandlerContext {
     socket :: UDP.Socket
 }
 
-type SocketMessageHandler eff a = (Buffer -> UDP.RemoteAddressInfo -> Eff eff a)
+type SocketMessageHandler eff a = (Buffer.Buffer -> UDP.RemoteAddressInfo -> Eff eff a)
 type AppMsgHandler eff = ReaderT MsgHandlerContext (Eff eff)
 
 type Member = {
@@ -56,13 +57,13 @@ runServer :: forall e. UDP.Socket -> Eff (socket :: UDP.SOCKET, console :: CONSO
 runServer socket = runST do
     serverState <- newSTRef { members: Nil }
     let msgListener = \buf rinfo -> do
-            let msg = toString encoding buf
+            let msg = Buffer.toString encoding buf
             let parsedJson = parseIncomingMsg msg
             case parsedJson of
                  (Left errMsg) -> log $ "Error parsing JSON: " ++ errMsg
                  (Right msg) -> do
 			currentState <- readSTRef serverState
-			let handlerContext = { socket: socket }
+			let handlerContext = MsgHandlerContext { socket: socket }
 			let handler = handleIncomingMsg currentState rinfo msg
 			newState <- runReaderT handler handlerContext
 			writeSTRef serverState newState
@@ -81,16 +82,30 @@ handleIncomingMsg state sender (Chat (ChatObject { chatMsg: msg })) = do
     lift <<< log $ msg 
     pure state
 
+sendMessage :: forall a eff. (EncodeJson a) => a -> String -> Int -> AppMsgHandler (socket :: UDP.SOCKET, console :: CONSOLE | eff) Unit
+sendMessage msg address port = do
+    MsgHandlerContext { socket: socket } <- ask
+    let json = encodeJson msg
+    let jsonStr = printJson json
+    lift <<< log $ jsonStr
+    let socketSendAction = sendStringToSocket socket address port jsonStr
+    lift <<< catchException logError $ launchAff socketSendAction
+
+sendStringToSocket :: forall eff. UDP.Socket -> String -> Int -> String -> Aff (socket :: UDP.SOCKET | eff) Unit
+sendStringToSocket socket address port msg = 
+    UDP.send buffer 0 (Buffer.size buffer) port address socket where
+        buffer = Buffer.fromString msg encoding
+
 parseIncomingMsg :: String -> Either String Command
 parseIncomingMsg msg = jsonParser msg >>= (decodeJson :: Json -> Either String Command)
 
 logListenStart :: forall eff. Unit -> Eff (console :: CONSOLE | eff) Unit 
 logListenStart _ = log "Listening for connections..."
 
-logMessage :: forall e. Buffer -> UDP.RemoteAddressInfo -> Eff (console :: CONSOLE | e) Unit
+logMessage :: forall e. Buffer.Buffer -> UDP.RemoteAddressInfo -> Eff (console :: CONSOLE | e) Unit
 logMessage msg rinfo = do 
     log $ show rinfo
-    log $ toString encoding msg
+    log $ Buffer.toString encoding msg
 
 logError :: forall e. Error -> Eff (console :: CONSOLE | e) Unit
 logError err = log $ "ERROR: " ++ message err
