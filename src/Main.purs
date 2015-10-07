@@ -1,42 +1,43 @@
 module Main where
 
-import Control.Alt
+import Control.Monad.Aff
 import Control.Monad.Eff
 import Control.Monad.Eff.Class
+import Control.Monad.Eff.Console hiding (error)
+import Control.Monad.Eff.Exception
 import Control.Monad.ST
 import Control.Monad.Reader.Trans
-import qualified Control.Monad.Eff.Console as EC
-import Control.Monad.Eff.Exception
-import qualified Node.Encoding as Encoding
-import Node.Buffer (Buffer(), toString)
-import Control.Monad.Aff
-import Control.Monad.Aff.Console
+import qualified Control.Monad.Aff.Console as AConsole
 import Data.Either
 import Data.List
+import Data.Maybe
 import Data.Argonaut.Core hiding (toString)
 import Data.Argonaut.Parser
 import Data.Argonaut.Printer
 import Data.Argonaut.Decode
-import Prelude
-import Data.Maybe
-import qualified Node.Datagram as U
+import qualified Node.Datagram as UDP
+import qualified Node.Encoding as Encoding
+import Node.Buffer (Buffer(), toString)
+
 import Chat.JsonModel
 
-socketType = U.UDP4
+import Prelude
+
+socketType = UDP.UDP4
 encoding = Encoding.UTF8
 listenPort = Just 62111
 listenInterfaces = Nothing -- all interfaces
 
 type MsgHandlerContext = {
-    socket :: U.Socket
+    socket :: UDP.Socket
 }
 
-type SocketMessageHandler eff a = (Buffer -> U.RemoteAddressInfo -> Eff eff a)
+type SocketMessageHandler eff a = (Buffer -> UDP.RemoteAddressInfo -> Eff eff a)
 type AppMsgHandler eff = ReaderT MsgHandlerContext (Eff eff)
 
 type Member = {
     nick :: String,
-    addr :: U.RemoteAddressInfo
+    addr :: UDP.RemoteAddressInfo
 }
 
 type ServerState = {
@@ -44,21 +45,21 @@ type ServerState = {
 }
 
 main = launchAff $ do
-    socket <- U.createSocket socketType
-    U.onError logError socket
-    addrInfo <- U.bindSocket listenPort listenInterfaces socket
-    log $ show addrInfo
+    socket <- UDP.createSocket socketType
+    UDP.onError logError socket
+    addrInfo <- UDP.bindSocket listenPort listenInterfaces socket
+    AConsole.log $ show addrInfo
     liftEff $ runServer socket
-    log "aww yiss"
+    AConsole.log "aww yiss"
 
-runServer :: forall e. U.Socket -> Eff (socket :: U.SOCKET, console :: EC.CONSOLE | e) Unit
+runServer :: forall e. UDP.Socket -> Eff (socket :: UDP.SOCKET, console :: CONSOLE | e) Unit
 runServer socket = runST do
     serverState <- newSTRef { members: Nil }
     let msgListener = \buf rinfo -> do
             let msg = toString encoding buf
             let parsedJson = parseIncomingMsg msg
             case parsedJson of
-                 (Left errMsg) -> EC.log $ "Error parsing JSON: " ++ errMsg
+                 (Left errMsg) -> log $ "Error parsing JSON: " ++ errMsg
                  (Right msg) -> do
 			currentState <- readSTRef serverState
 			let handlerContext = { socket: socket }
@@ -66,30 +67,30 @@ runServer socket = runST do
 			newState <- runReaderT handler handlerContext
 			writeSTRef serverState newState
 			pure unit
-    runAff logError logListenStart $ U.onMessage msgListener socket
+    runAff logError logListenStart $ UDP.onMessage msgListener socket
 
-handleIncomingMsg :: forall e h. ServerState -> U.RemoteAddressInfo -> Command -> AppMsgHandler (console :: EC.CONSOLE | e) ServerState
+handleIncomingMsg :: forall e h. ServerState -> UDP.RemoteAddressInfo -> Command -> AppMsgHandler (console :: CONSOLE | e) ServerState
 
 handleIncomingMsg state sender (Connect (ConnectObject { nick: nick })) = do
-    lift <<< EC.log $ nick ++ " joined from " ++ show sender
+    lift <<< log $ nick ++ " joined from " ++ show sender
     let newMember = { nick: nick, addr: sender }
     let updatedState = state { members = newMember : state.members }
     pure updatedState
 
 handleIncomingMsg state sender (Chat (ChatObject { chatMsg: msg })) = do
-    lift $ EC.log $ msg 
+    lift <<< log $ msg 
     pure state
 
 parseIncomingMsg :: String -> Either String Command
 parseIncomingMsg msg = jsonParser msg >>= (decodeJson :: Json -> Either String Command)
 
-logListenStart :: forall eff. Unit -> Eff (console :: EC.CONSOLE | eff) Unit 
-logListenStart _ = EC.log "Listening for connections..."
+logListenStart :: forall eff. Unit -> Eff (console :: CONSOLE | eff) Unit 
+logListenStart _ = log "Listening for connections..."
 
-logMessage :: forall e. Buffer -> U.RemoteAddressInfo -> Eff (console :: EC.CONSOLE | e) Unit
+logMessage :: forall e. Buffer -> UDP.RemoteAddressInfo -> Eff (console :: CONSOLE | e) Unit
 logMessage msg rinfo = do 
-    EC.log $ show rinfo
-    EC.log $ toString encoding msg
+    log $ show rinfo
+    log $ toString encoding msg
 
-logError :: forall e. Error -> Eff (console :: EC.CONSOLE | e) Unit
-logError err = EC.log $ "ERROR: " ++ message err
+logError :: forall e. Error -> Eff (console :: CONSOLE | e) Unit
+logError err = log $ "ERROR: " ++ message err
