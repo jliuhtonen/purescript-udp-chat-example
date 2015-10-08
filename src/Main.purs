@@ -33,7 +33,7 @@ newtype MsgHandlerContext = MsgHandlerContext {
   socket :: UDP.Socket
 }
 
-type SocketMessageHandler eff a = (Buffer.Buffer -> UDP.RemoteAddressInfo -> Eff eff a)
+type SocketMessageDispatcher eff a = (Buffer.Buffer -> UDP.RemoteAddressInfo -> Eff eff a)
 type AppMsgHandler eff = ReaderT MsgHandlerContext (Eff eff)
 
 type Member = {
@@ -59,7 +59,7 @@ runServer socket = runST do
   let msgListener = createMessageDispatcher socket serverState
   runAff logError logListenStart $ UDP.onMessage msgListener socket
 
-createMessageDispatcher :: forall h eff. UDP.Socket -> STRef h ServerState -> SocketMessageHandler (console :: CONSOLE, st :: ST h) Unit
+createMessageDispatcher :: forall h eff. UDP.Socket -> STRef h ServerState -> SocketMessageDispatcher (console :: CONSOLE, st :: ST h) Unit
 createMessageDispatcher socket serverState = \buf rinfo -> do
   let msg = Buffer.toString encoding buf
   let parsedJson = parseIncomingMsg msg
@@ -85,7 +85,7 @@ handleIncomingMsg (ServerState state) sender (Chat (ChatObject { chatMsg: msg })
   lift <<< log $ msg 
   pure $ ServerState state
 
-sendMessage :: forall a eff. (EncodeJson a) => a -> String -> Int -> AppMsgHandler (socket :: UDP.SOCKET, console :: CONSOLE | eff) Unit
+sendMessage :: forall a eff. (EncodeJson a) => a -> UDP.Address -> UDP.Port -> AppMsgHandler (socket :: UDP.SOCKET, console :: CONSOLE | eff) Unit
 sendMessage msg address port = do
   MsgHandlerContext { socket: socket } <- ask
   let jsonStr = printJson $ encodeJson msg
@@ -93,7 +93,7 @@ sendMessage msg address port = do
   let socketSendAction = sendStringToSocket socket address port jsonStr
   lift <<< catchException logError $ launchAff socketSendAction
 
-sendStringToSocket :: forall eff. UDP.Socket -> String -> Int -> String -> Aff (socket :: UDP.SOCKET | eff) Unit
+sendStringToSocket :: forall eff. UDP.Socket -> UDP.Address -> UDP.Port -> String -> Aff (socket :: UDP.SOCKET | eff) Unit
 sendStringToSocket socket address port msg = 
   UDP.send buffer 0 (Buffer.size buffer) port address socket where
     buffer = Buffer.fromString msg encoding
