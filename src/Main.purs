@@ -41,7 +41,7 @@ type Member = {
   addr :: UDP.RemoteAddressInfo
 }
 
-type ServerState = {
+newtype ServerState = ServerState {
   members :: List Member    
 }
 
@@ -53,34 +53,37 @@ main = launchAff $ do
   liftEff $ runServer socket
   AConsole.log "aww yiss"
 
-runServer :: forall e. UDP.Socket -> Eff (socket :: UDP.SOCKET, console :: CONSOLE | e) Unit
+runServer :: forall e h. UDP.Socket -> Eff (socket :: UDP.SOCKET, console :: CONSOLE) Unit
 runServer socket = runST do
-  serverState <- newSTRef { members: Nil }
-  let msgListener = \buf rinfo -> do
-          let msg = Buffer.toString encoding buf
-          let parsedJson = parseIncomingMsg msg
-          case parsedJson of
-            (Left errMsg) -> log $ "Error parsing JSON: " ++ errMsg
-            (Right msg) -> do
-                currentState <- readSTRef serverState
-                let handlerContext = MsgHandlerContext { socket: socket }
-                let handler = handleIncomingMsg currentState rinfo msg
-                newState <- runReaderT handler handlerContext
-                writeSTRef serverState newState
-                pure unit
+  serverState <- newSTRef $ ServerState { members: Nil }
+  let msgListener = createMessageDispatcher socket serverState
   runAff logError logListenStart $ UDP.onMessage msgListener socket
+
+createMessageDispatcher :: forall h eff. UDP.Socket -> STRef h ServerState -> SocketMessageHandler (console :: CONSOLE, st :: ST h) Unit
+createMessageDispatcher socket serverState = \buf rinfo -> do
+  let msg = Buffer.toString encoding buf
+  let parsedJson = parseIncomingMsg msg
+  case parsedJson of
+       (Left errMsg) -> log $ "Error parsing JSON: " ++ errMsg
+       (Right msg) -> do
+         currentState <- readSTRef serverState
+         let handlerContext = MsgHandlerContext { socket: socket }
+         let handler = handleIncomingMsg currentState rinfo msg
+         newState <- runReaderT handler handlerContext
+         writeSTRef serverState newState
+         pure unit
 
 handleIncomingMsg :: forall e h. ServerState -> UDP.RemoteAddressInfo -> Command -> AppMsgHandler (console :: CONSOLE | e) ServerState
 
-handleIncomingMsg state sender (Connect (ConnectObject { nick: nick })) = do
+handleIncomingMsg (ServerState state) sender (Connect (ConnectObject { nick: nick })) = do
   lift <<< log $ nick ++ " joined from " ++ show sender
   let newMember = { nick: nick, addr: sender }
-  let updatedState = state { members = newMember : state.members }
+  let updatedState = ServerState $ state { members = newMember : state.members }
   pure updatedState
 
-handleIncomingMsg state sender (Chat (ChatObject { chatMsg: msg })) = do
+handleIncomingMsg (ServerState state) sender (Chat (ChatObject { chatMsg: msg })) = do
   lift <<< log $ msg 
-  pure state
+  pure $ ServerState state
 
 sendMessage :: forall a eff. (EncodeJson a) => a -> String -> Int -> AppMsgHandler (socket :: UDP.SOCKET, console :: CONSOLE | eff) Unit
 sendMessage msg address port = do
