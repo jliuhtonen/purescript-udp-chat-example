@@ -1,4 +1,4 @@
-module Chat.JsonModel where
+module Model where
 
 import Control.Alt
 import Data.Argonaut.Decode
@@ -6,7 +6,7 @@ import Data.Argonaut.Combinators
 import Data.Either
 import Prelude
 
-data Command = Connect ConnectObject | Chat ChatObject
+data Message = Connect ConnectObject | Chat ChatObject
 
 newtype ConnectObject = ConnectObject {
   nick :: String
@@ -33,5 +33,5 @@ instance decodeChatMsg :: DecodeJson ChatObject where
     n <- obj .? "chatMsg"
     pure $ ChatObject { chatMsg: n }
 
-instance decodeClientMsg :: DecodeJson Command where
+instance decodeClientMsg :: DecodeJson Message where
   decodeJson json = (Connect <$> decodeJson json) <|> (Chat <$> decodeJson json) <|> (Left "NONONO")
