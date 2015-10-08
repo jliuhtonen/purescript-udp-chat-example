@@ -30,70 +30,70 @@ listenPort = Just 62111
 listenInterfaces = Nothing -- all interfaces
 
 newtype MsgHandlerContext = MsgHandlerContext {
-    socket :: UDP.Socket
+  socket :: UDP.Socket
 }
 
 type SocketMessageHandler eff a = (Buffer.Buffer -> UDP.RemoteAddressInfo -> Eff eff a)
 type AppMsgHandler eff = ReaderT MsgHandlerContext (Eff eff)
 
 type Member = {
-    nick :: String,
-    addr :: UDP.RemoteAddressInfo
+  nick :: String,
+  addr :: UDP.RemoteAddressInfo
 }
 
 type ServerState = {
-    members :: List Member    
+  members :: List Member    
 }
 
 main = launchAff $ do
-    socket <- UDP.createSocket socketType
-    UDP.onError logError socket
-    addrInfo <- UDP.bindSocket listenPort listenInterfaces socket
-    AConsole.log $ show addrInfo
-    liftEff $ runServer socket
-    AConsole.log "aww yiss"
+  socket <- UDP.createSocket socketType
+  UDP.onError logError socket
+  addrInfo <- UDP.bindSocket listenPort listenInterfaces socket
+  AConsole.log $ show addrInfo
+  liftEff $ runServer socket
+  AConsole.log "aww yiss"
 
 runServer :: forall e. UDP.Socket -> Eff (socket :: UDP.SOCKET, console :: CONSOLE | e) Unit
 runServer socket = runST do
-    serverState <- newSTRef { members: Nil }
-    let msgListener = \buf rinfo -> do
-            let msg = Buffer.toString encoding buf
-            let parsedJson = parseIncomingMsg msg
-            case parsedJson of
-                 (Left errMsg) -> log $ "Error parsing JSON: " ++ errMsg
-                 (Right msg) -> do
-			currentState <- readSTRef serverState
-			let handlerContext = MsgHandlerContext { socket: socket }
-			let handler = handleIncomingMsg currentState rinfo msg
-			newState <- runReaderT handler handlerContext
-			writeSTRef serverState newState
-			pure unit
-    runAff logError logListenStart $ UDP.onMessage msgListener socket
+  serverState <- newSTRef { members: Nil }
+  let msgListener = \buf rinfo -> do
+          let msg = Buffer.toString encoding buf
+          let parsedJson = parseIncomingMsg msg
+          case parsedJson of
+            (Left errMsg) -> log $ "Error parsing JSON: " ++ errMsg
+            (Right msg) -> do
+                currentState <- readSTRef serverState
+                let handlerContext = MsgHandlerContext { socket: socket }
+                let handler = handleIncomingMsg currentState rinfo msg
+                newState <- runReaderT handler handlerContext
+                writeSTRef serverState newState
+                pure unit
+  runAff logError logListenStart $ UDP.onMessage msgListener socket
 
 handleIncomingMsg :: forall e h. ServerState -> UDP.RemoteAddressInfo -> Command -> AppMsgHandler (console :: CONSOLE | e) ServerState
 
 handleIncomingMsg state sender (Connect (ConnectObject { nick: nick })) = do
-    lift <<< log $ nick ++ " joined from " ++ show sender
-    let newMember = { nick: nick, addr: sender }
-    let updatedState = state { members = newMember : state.members }
-    pure updatedState
+  lift <<< log $ nick ++ " joined from " ++ show sender
+  let newMember = { nick: nick, addr: sender }
+  let updatedState = state { members = newMember : state.members }
+  pure updatedState
 
 handleIncomingMsg state sender (Chat (ChatObject { chatMsg: msg })) = do
-    lift <<< log $ msg 
-    pure state
+  lift <<< log $ msg 
+  pure state
 
 sendMessage :: forall a eff. (EncodeJson a) => a -> String -> Int -> AppMsgHandler (socket :: UDP.SOCKET, console :: CONSOLE | eff) Unit
 sendMessage msg address port = do
-    MsgHandlerContext { socket: socket } <- ask
-    let jsonStr = printJson $ encodeJson msg
-    lift $ log jsonStr
-    let socketSendAction = sendStringToSocket socket address port jsonStr
-    lift <<< catchException logError $ launchAff socketSendAction
+  MsgHandlerContext { socket: socket } <- ask
+  let jsonStr = printJson $ encodeJson msg
+  lift $ log jsonStr
+  let socketSendAction = sendStringToSocket socket address port jsonStr
+  lift <<< catchException logError $ launchAff socketSendAction
 
 sendStringToSocket :: forall eff. UDP.Socket -> String -> Int -> String -> Aff (socket :: UDP.SOCKET | eff) Unit
 sendStringToSocket socket address port msg = 
-    UDP.send buffer 0 (Buffer.size buffer) port address socket where
-        buffer = Buffer.fromString msg encoding
+  UDP.send buffer 0 (Buffer.size buffer) port address socket where
+    buffer = Buffer.fromString msg encoding
 
 parseIncomingMsg :: String -> Either String Command
 parseIncomingMsg msg = jsonParser msg >>= (decodeJson :: Json -> Either String Command)
@@ -103,8 +103,8 @@ logListenStart _ = log "Listening for connections..."
 
 logMessage :: forall e. Buffer.Buffer -> UDP.RemoteAddressInfo -> Eff (console :: CONSOLE | e) Unit
 logMessage msg rinfo = do 
-    log $ show rinfo
-    log $ Buffer.toString encoding msg
+  log $ show rinfo
+  log $ Buffer.toString encoding msg
 
 logError :: forall e. Error -> Eff (console :: CONSOLE | e) Unit
 logError err = log $ "ERROR: " ++ message err
