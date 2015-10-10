@@ -44,11 +44,11 @@ main = launchAff $ do
   UDP.onError logError socket
   addrInfo <- UDP.bindSocket listenPort listenInterfaces socket
   AConsole.log $ show addrInfo
-  liftEff $ runServer socket
+  liftEff $ (runST (runServer socket))
   AConsole.log "aww yiss"
 
-runServer :: forall e h. UDP.Socket -> Eff (socket :: UDP.SOCKET, console :: CONSOLE) Unit
-runServer socket = runST do
+runServer :: forall e h. UDP.Socket -> Eff (st :: ST h, socket :: UDP.SOCKET, console :: CONSOLE) Unit
+runServer socket = do
   serverState <- newSTRef $ ServerState { members: Nil }
   let msgListener = createMessageDispatcher socket serverState
   runAff logError logListenStart $ UDP.onMessage msgListener socket
