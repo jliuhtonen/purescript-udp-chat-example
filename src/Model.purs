@@ -1,7 +1,9 @@
 module Model where
 
 import Control.Alt
+import Data.Argonaut.Core
 import Data.Argonaut.Decode
+import Data.Argonaut.Encode
 import Data.Argonaut.Combinators
 import Data.Either
 import Prelude
@@ -21,11 +23,20 @@ newtype ClientChatMsg = ClientChatMsg {
   msg :: String    
 }
 
+instance encodeClientChatMsg :: EncodeJson ClientChatMsg where
+  encodeJson (ClientChatMsg m) = 
+    "nick" := m.nick ~> 
+    "msg" := m.msg ~>
+    jsonEmptyObject
+
 instance decodeConnectMsg :: DecodeJson ConnectObject where
   decodeJson json = do
     obj <- decodeJson json
     n <- obj .? "nick"
     pure $ ConnectObject { nick: n }
+
+instance encodeConnectMsg :: EncodeJson ConnectObject where
+  encodeJson (ConnectObject r) = "nick" := r.nick ~> jsonEmptyObject 
 
 instance decodeChatMsg :: DecodeJson ChatObject where
   decodeJson json = do

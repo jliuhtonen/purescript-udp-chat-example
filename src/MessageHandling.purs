@@ -31,7 +31,6 @@ sendMessage :: forall a eff. (EncodeJson a) => a -> UDP.Address -> UDP.Port -> A
 sendMessage msg address port = do
   MsgHandlerContext { socket: socket } <- ask
   let jsonStr = printJson $ encodeJson msg
-  lift $ log jsonStr
   let socketSendAction = sendStringToSocket socket address port jsonStr
   lift <<< catchException logError $ launchAff socketSendAction
 
