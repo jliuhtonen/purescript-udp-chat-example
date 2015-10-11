@@ -13,7 +13,8 @@ var serverPort = 62111
 
 function sendToServer(obj) {
   var str = JSON.stringify(obj)
-  socket.send(str, 0, str.length, serverPort, server)
+  var buf = new Buffer(str)
+  socket.send(buf, 0, buf.length, serverPort, server)
 }
 
 function sendJoinMsg(nick) {
