@@ -10,7 +10,6 @@ import qualified Control.Monad.Aff.Console as AConsole
 import Data.Either
 import Data.List
 import Data.Maybe
-import Data.Foldable (traverse_, find)
 import qualified Node.Datagram as UDP
 import qualified Node.Encoding as Encoding
 import qualified Node.Buffer as Buffer
