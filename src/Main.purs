@@ -26,8 +26,6 @@ encoding = Encoding.UTF8
 listenPort = Just 62111
 listenInterfaces = Nothing -- all interfaces
 
-type SocketMessageDispatcher eff a = (Buffer.Buffer -> UDP.RemoteAddressInfo -> Eff eff a)
-
 main = launchAff $ do
   socket <- UDP.createSocket socketType
   UDP.onError logError socket
@@ -41,7 +39,7 @@ runServer socket = do
   let msgListener = createMessageDispatcher socket serverState
   runAff logError logListenStart $ UDP.onMessage msgListener socket
 
-createMessageDispatcher :: forall h eff. UDP.Socket -> STRef h Chat.ServerState -> SocketMessageDispatcher (console :: CONSOLE, socket :: UDP.SOCKET, st :: ST h | eff) Unit
+createMessageDispatcher :: forall h eff. UDP.Socket -> STRef h Chat.ServerState -> UDP.MessageListener (console :: CONSOLE, socket :: UDP.SOCKET, st :: ST h | eff)
 createMessageDispatcher socket serverState = \buf rinfo -> do
   let msg = Buffer.toString encoding buf
   let parsedJson = parseIncomingMsg msg
